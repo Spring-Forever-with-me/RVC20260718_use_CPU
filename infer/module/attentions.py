@@ -330,20 +330,26 @@ class MultiHeadAttention(nn.Module):
         ret: [b, h, l, l]
         """
         batch, heads, length, _ = x.size()
-        # Concat columns of pad to shift from relative to absolute indexing.
-        x = F.pad(
-            x,
-            #   commons.convert_pad_shape([[0, 0], [0, 0], [0, 0], [0, 1]])
-            [0, 1, 0, 0, 0, 0, 0, 0],
-        )
+        if length <= 0:
+            raise ValueError(f"Invalid length {length} in _relative_position_to_absolute_position")
+        try:
+            # Concat columns of pad to shift from relative to absolute indexing.
+            x = F.pad(
+                x,
+                [0, 1, 0, 0, 0, 0, 0, 0],  # pad last dimension's right by 1
+            )
+        except Exception as e:
+            raise RuntimeError(f"F.pad failed in first pad with x.shape={x.shape}, length={length}: {repr(e)}") from None
 
         # Concat extra elements so to add up to shape (len+1, 2*len-1).
         x_flat = x.view([batch, heads, length * 2 * length])
-        x_flat = F.pad(
-            x_flat,
-            # commons.convert_pad_shape([[0, 0], [0, 0], [0, int(length) - 1]])
-            [0, int(length) - 1, 0, 0, 0, 0],
-        )
+        try:
+            x_flat = F.pad(
+                x_flat,
+                [0, int(length) - 1, 0, 0, 0, 0],  # pad last dimension's right by length-1
+            )
+        except Exception as e:
+            raise RuntimeError(f"F.pad failed in second pad with x_flat.shape={x_flat.shape}, length={length}: {repr(e)}") from None
 
         # Reshape and slice out the padded elements.
         x_final = x_flat.view([batch, heads, length + 1, 2 * length - 1])[
@@ -357,19 +363,25 @@ class MultiHeadAttention(nn.Module):
         ret: [b, h, l, 2*l-1]
         """
         batch, heads, length, _ = x.size()
-        # padd along column
-        x = F.pad(
-            x,
-            # commons.convert_pad_shape([[0, 0], [0, 0], [0, 0], [0, int(length) - 1]])
-            [0, int(length) - 1, 0, 0, 0, 0, 0, 0],
-        )
+        if length <= 0:
+            raise ValueError(f"Invalid length {length} in _absolute_position_to_relative_position")
+        try:
+            # padd along column
+            x = F.pad(
+                x,
+                [0, int(length) - 1, 0, 0, 0, 0, 0, 0],
+            )
+        except Exception as e:
+            raise RuntimeError(f"F.pad failed in first pad with x.shape={x.shape}, length={length}: {repr(e)}") from None
         x_flat = x.view([batch, heads, int(length**2) + int(length * (length - 1))])
-        # add 0's in the beginning that will skew the elements after reshape
-        x_flat = F.pad(
-            x_flat,
-            #    commons.convert_pad_shape([[0, 0], [0, 0], [int(length), 0]])
-            [length, 0, 0, 0, 0, 0],
-        )
+        try:
+            # add 0's in the beginning that will skew the elements after reshape
+            x_flat = F.pad(
+                x_flat,
+                [length, 0, 0, 0, 0, 0],
+            )
+        except Exception as e:
+            raise RuntimeError(f"F.pad failed in second pad with x_flat.shape={x_flat.shape}, length={length}: {repr(e)}") from None
         x_final = x_flat.view([batch, heads, length, 2 * length])[:, :, :, 1:]
         return x_final
 

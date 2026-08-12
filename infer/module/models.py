@@ -74,7 +74,17 @@ class TextEncoder(nn.Module):
             )
             x = x[:, :, head:]
             x_mask = x_mask[:, :, head:]
-        stats = self.proj(x) * x_mask
+        # 捕获 proj 操作可能抛出的底层异常
+        try:
+            stats = self.proj(x) * x_mask
+        except Exception as e:
+            import traceback
+            traceback.print_exc()  # 直接打印完整堆栈到 stderr
+            print(f"TextEncoder.proj failed: x.shape={x.shape}, x_mask.shape={x_mask.shape}, lengths={lengths}, skip_head={skip_head}", file=sys.stderr)
+            raise RuntimeError(
+                f"TextEncoder.proj failed: x.shape={x.shape}, x_mask.shape={x_mask.shape}, "
+                f"lengths={lengths}, skip_head={skip_head}, out_channels={self.out_channels} | Original: {repr(e)}"
+            ) from None
         m, logs = torch.split(stats, self.out_channels, dim=1)
         return m, logs, x_mask
 
@@ -312,7 +322,10 @@ class SineGen(torch.nn.Module):
         )
         rad2 = torch.fmod(rad[..., -1:].float() + 0.5, 1.0) - 0.5
         rad_acc = rad2.cumsum(dim=1).fmod(1.0).to(f0)
-        rad += F.pad(rad_acc, (0, 0, 1, -1))
+        #rad += F.pad(rad_acc, (0, 0, 1, -1))
+        zeros = torch.zeros_like(rad_acc[:, :1, ...])          # 与 rad_acc 形状兼容的零张量
+        rad_shift = torch.cat([zeros, rad_acc[:, :-1, ...]], dim=1)  # 后移一位
+        rad += rad_shift
         rad = rad.reshape(f0.shape[0], -1, 1)
         rad = torch.multiply(
             rad,
@@ -654,28 +667,35 @@ class SynthesizerTrnMs256NSFsid(nn.Module):
         return_length = None,
         return_length2 = None,
     ):
-        g = self.emb_g(sid).unsqueeze(-1)
-        if skip_head is not None and return_length is not None:
-            head = int(skip_head.item()) if isinstance(skip_head, torch.Tensor) else int(skip_head)
-            length = (
-                int(return_length.item())
-                if isinstance(return_length, torch.Tensor)
-                else int(return_length)
-            )
-            flow_head = max(head - 24, 0)
-            dec_head = head - flow_head
-            m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths, flow_head)
-            z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * 0.66666) * x_mask
-            z = self.flow(z_p, x_mask, g=g, reverse=True)
-            z = z[:, :, dec_head : dec_head + length]
-            x_mask = x_mask[:, :, dec_head : dec_head + length]
-            nsff0 = nsff0[:, head : head + length]
-        else:
-            m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths)
-            z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * 0.66666) * x_mask
-            z = self.flow(z_p, x_mask, g=g, reverse=True)
-        o = self.dec(z * x_mask, nsff0, g=g, n_res=return_length2)
-        return o, x_mask, (z, z_p, m_p, logs_p)
+        try:
+            g = self.emb_g(sid).unsqueeze(-1)
+            if skip_head is not None and return_length is not None:
+                head = int(skip_head.item()) if isinstance(skip_head, torch.Tensor) else int(skip_head)
+                length = (
+                    int(return_length.item())
+                    if isinstance(return_length, torch.Tensor)
+                    else int(return_length)
+                )
+                flow_head = max(head - 24, 0)
+                dec_head = head - flow_head
+                m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths, flow_head)
+                z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * 0.66666) * x_mask
+                z = self.flow(z_p, x_mask, g=g, reverse=True)
+                z = z[:, :, dec_head : dec_head + length]
+                x_mask = x_mask[:, :, dec_head : dec_head + length]
+                nsff0 = nsff0[:, head : head + length]
+            else:
+                m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths)
+                z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * 0.66666) * x_mask
+                z = self.flow(z_p, x_mask, g=g, reverse=True)
+            o = self.dec(z * x_mask, nsff0, g=g, n_res=return_length2)
+            return o, x_mask, (z, z_p, m_p, logs_p)
+        except Exception as e:
+            raise RuntimeError(
+                f"Infer failed: phone.shape={phone.shape}, phone_lengths={phone_lengths}, "
+                f"pitch.shape={pitch.shape}, nsff0.shape={nsff0.shape}, sid={sid}, "
+                f"skip_head={skip_head}, return_length={return_length}, return_length2={return_length2} | Original: {repr(e)}"
+            ) from None
 
 
 class SynthesizerTrnMs768NSFsid(SynthesizerTrnMs256NSFsid):

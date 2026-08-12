@@ -19,6 +19,14 @@ from tools.cuda_graph import cuda_graph_enabled, run_cuda_graph
 
 bh, ah = signal.butter(N=5, Wn=48, btype="high", fs=16000)
 
+def getvalue(valuea):
+    """有时居然会被识别为dict"""
+    if type(valuea) == dict:
+        return valuea['value']
+    else:
+        return valuea
+    
+
 
 def change_rms(data1, sr1, data2, sr2, rate):  # 1是输入音频，2是输出音频,rate是2的占比
     # print(data1.max(),data2.max())
@@ -172,7 +180,7 @@ class Pipeline(object):
                 version,
                 padding_mask=padding_mask,
             )
-        if protect < 0.5 and pitch is not None and pitchf is not None:
+        if getvalue(protect) < 0.5 and pitch is not None and pitchf is not None:
             feats0 = feats.clone()
         if (
             not isinstance(index, type(None))
@@ -196,7 +204,7 @@ class Pipeline(object):
             )
 
         feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
-        if protect < 0.5 and pitch is not None and pitchf is not None:
+        if getvalue(protect) < 0.5 and pitch is not None and pitchf is not None:
             feats0 = F.interpolate(feats0.permute(0, 2, 1), scale_factor=2).permute(
                 0, 2, 1
             )
@@ -208,10 +216,10 @@ class Pipeline(object):
                 pitch = pitch[:, :p_len]
                 pitchf = pitchf[:, :p_len]
 
-        if protect < 0.5 and pitch is not None and pitchf is not None:
+        if getvalue(protect) < 0.5 and pitch is not None and pitchf is not None:
             pitchff = pitchf.clone()
             pitchff[pitchf > 0] = 1
-            pitchff[pitchf < 1] = protect
+            pitchff[pitchf < 1] = getvalue(protect)
             pitchff = pitchff.unsqueeze(-1)
             feats = feats * pitchff + feats0 * (1 - pitchff)
             feats = feats.to(feats0.dtype)

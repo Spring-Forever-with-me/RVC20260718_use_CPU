@@ -1,3 +1,4 @@
+from datetime import datetime
 import traceback
 import logging
 
@@ -7,7 +8,7 @@ import numpy as np
 import soundfile as sf
 import torch
 from io import BytesIO
-
+from tools.cuda_graph import clear_cuda_graph_cache
 from infer.audio import load_audio, wav2
 from infer.module.models import (
     SynthesizerTrnMs256NSFsid,
@@ -239,6 +240,7 @@ class VC:
             return inference_status("单次推理", "等待输入", i18n("请上传音频文件")), None
         f0_up_key = int(f0_up_key)
         try:
+            clear_cuda_graph_cache(self.net_g)
             audio = load_audio(input_audio_path, 16000)
             audio_max = np.abs(audio).max() / 0.95
             if audio_max > 1:
@@ -379,19 +381,20 @@ class VC:
                     protect,
                 )
                 if opt and opt[0] is not None and opt[1] is not None:
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3] 
                     try:
                         tgt_sr, audio_opt = opt
                         if format1 in ["wav", "flac"]:
                             sf.write(
-                                "%s/%s.%s"
-                                % (
-                                    opt_root,
-                                    os.path.splitext(os.path.basename(path))[0],
-                                    format1,
-                                ),
-                                audio_opt,
-                                tgt_sr,
-                            )
+                            "%s/%s_%s.%s" % (
+                                opt_root,
+                                timestamp,
+                                os.path.splitext(os.path.basename(path))[0],
+                                format1,
+                            ),
+                            audio_opt,
+                            tgt_sr,
+                        )
                         else:
                             path = "%s/%s.%s" % (
                                 opt_root,
