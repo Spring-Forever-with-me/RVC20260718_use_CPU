@@ -4,7 +4,8 @@ import html
 import copy
 import re
 import warnings
-
+os.environ["RVC_CUDA_GRAPH"] = "0"
+from tools.cuda_graph import clear_cuda_graph_cache
 warnings.filterwarnings(
     "ignore",
     message=r"pkg_resources is deprecated as an API.*",
