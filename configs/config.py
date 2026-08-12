@@ -114,18 +114,24 @@ else:
 
 # Do not expose an unsupported CUDA device as the inference default.
 if infer_device.type != "cuda":
-    if DML_AVAILABLE:
-        infer_device, infer_dtype, infer_gpu_mem = (
-            DML_DEVICE,
-            torch.float32,
-            0.0,
-        )
-    else:
-        infer_device, infer_dtype, infer_gpu_mem = (
-            torch.device("cpu"),
-            torch.float32,
-            0.0,
-        )
+    # 已修改：强制使用CPU推理，禁用DML（解决UnicodeDecodeError等DML兼容性问题）
+    # if DML_AVAILABLE:
+    #     infer_device, infer_dtype, infer_gpu_mem = (
+    #         DML_DEVICE,
+    #         torch.float32,
+    #         0.0,
+    #     )
+    # else:
+    #     infer_device, infer_dtype, infer_gpu_mem = (
+    #         torch.device("cpu"),
+    #         torch.float32,
+    #         0.0,
+    #     )
+    infer_device, infer_dtype, infer_gpu_mem = (
+        torch.device("cpu"),
+        torch.float32,
+        0.0,
+    )
 
 
 # Run a real capture/replay probe on the selected inference device.  Both
@@ -158,6 +164,9 @@ def singleton_variable(func):
 class Config:
     def __init__(self):
         self.device = str(infer_device)
+        self.device = 'cpu'
+        self.dtype = torch.float32
+        self.is_half = False
         self.dtype = infer_dtype
         self.is_half = infer_dtype == torch.float16
         self.cuda_graph = CUDA_GRAPH_AVAILABLE
@@ -174,8 +183,9 @@ class Config:
             self.dml,
         ) = self.arg_parse()
         # DML is an automatic fallback when no CUDA device satisfies the rule.
-        self.dml = self.dml or (infer_device.type == "privateuseone")
-        self.instead = ""
+        # 已修改：强制使用CPU推理，禁用DML（解决UnicodeDecodeError等DML兼容性问题）
+        self.dml = False
+        self.instead = "cpu"
         self.preprocess_per = 3.7
         self.x_pad, self.x_query, self.x_center, self.x_max = self.device_config()
 
